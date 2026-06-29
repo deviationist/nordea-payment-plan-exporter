@@ -1,0 +1,26 @@
+# Python venv / caches
+.venv*/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Secrets + personal config — never commit
+.env
+
+# Downloaded Nordea data (personal) — fetched locally, never committed
+nordea_loan_detail.json
+nordea_payplan_data.json
+
+# Timestamped login captures (personal data) — local only
+captures/
+
+# Generated output artifacts
+*.csv
+*.xlsx
+
+# editor swap files
+*.swp
+*.swo
+.*.sw?

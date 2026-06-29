@@ -42,6 +42,7 @@ Copy `.env.example` → `.env` (gitignored) and fill in:
 | Key | Used by | Meaning |
 |---|---|---|
 | `SSN`, `BANKID_PWD` | `fetch.sh` | Nordea login (OTP/phone stays manual) |
+| `LOAN_ID` | `fetch.sh` | optional — only to disambiguate >1 loan with a repayment plan |
 | `DOWNPAYMENT` | `build.sh`, `compare.sh` | temporary downpayment in kr (e.g. `500000`; empty/0 = initial plan only) |
 | `DOWN_DATE` | `build.sh`, `compare.sh` | when it's paid, `YYYY-MM-DD` (default: first term) |
 | `UP_DATE` | `build.sh`, `compare.sh` | uploan repayment date, `YYYY-MM-DD` (e.g. `2030-01-01`) |
@@ -193,7 +194,15 @@ and **BankID password** (`.env:BANKID_PWD`), then waits while **you approve the
 BankID push on your phone** (or type the OTP). It then intercepts the bank's own
 authenticated API responses — direct `fetch()` of the endpoints returns **401**
 (the SPA holds a bearer token), so the script lets the app make the calls and
-captures them — discovers the loan via `/loans-v1/loans`.
+captures them.
+
+**Loan selection is dynamic, no DOM clicking.** From the intercepted
+`/loans-v1/loans` list it picks the single loan with a repayment plan (preferring
+`group == "mortgage"`); set `LOAN_ID` in `.env` to disambiguate if you have more
+than one. The `/loans/details/<hash>` route is just **`sha256(loan_id)`**, so the
+script computes that and deep-links straight to the loan's pay-plans page — which
+fires both the detail and pay-plans calls — instead of relying on a fragile button
+selector.
 
 Each run writes an **immutable, timestamped snapshot** under `captures/`
 (gitignored) — e.g. `captures/payplan-2026-07-01T0930.json` +

@@ -14,6 +14,7 @@ overwrites a prior capture, never touches the committed baseline. Render it with
     ./fetch.sh        # bootstraps a playwright venv and runs this
 """
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -108,22 +109,32 @@ def main():
         page.wait_for_url("**/overview/**", timeout=240000)   # waits for you
         print(">>> Logged in. Capturing loan data …", flush=True)
 
-        # --- fire the authenticated calls and intercept them ---
+        # --- pick the loan from the API data, then deep-link (no DOM selector) ---
+        # The overview load fires /loans-v1/loans (intercepted into captured["list"]).
+        # Choose the loan from that structured data; the /loans/details/<hash> route
+        # is sha256(loan_id), so we deep-link straight to its pay-plans page, which
+        # fires BOTH the detail and pay-plans calls.
         page.goto("https://netbank.nordea.no/overview/")
         page.wait_for_timeout(2000)
 
-        loan_id = None
-        for ln in captured.get("list", {}).get("loans", []):
-            if ln.get("has_repayment_plan"):
-                loan_id = ln["loan_id"]
-                break
+        with_plan = [l for l in captured.get("list", {}).get("loans", [])
+                     if l.get("has_repayment_plan")]
+        want = env.get("LOAN_ID")
+        if want:                                     # explicit choice (disambiguates >1 loan)
+            chosen = next((l for l in with_plan if l.get("loan_id") == want), None)
+            if not chosen:
+                sys.exit(f"LOAN_ID {want} not found among loans with a repayment plan")
+        else:                                        # else the single mortgage with a plan
+            pool = [l for l in with_plan if l.get("group") == "mortgage"] or with_plan
+            if len(pool) != 1:
+                found = ", ".join(f'{l.get("loan_id")} ({l.get("group")})' for l in pool) or "none"
+                sys.exit(f"Could not pick a single loan — set LOAN_ID in .env. Candidates: {found}")
+            chosen = pool[0]
 
-        loan_btn = (page.get_by_role("button", name=re.compile(loan_id)) if loan_id
-                    else page.get_by_role("button", name=re.compile(r"Lånenummer\d+")))
-        loan_btn.first.click()                       # -> /loans/details/<hash>  (detail fires)
-        page.wait_for_timeout(2500)
-        page.goto(page.url.rstrip("/") + "/pay-plans")  # pay-plans fires
-        page.wait_for_timeout(2500)
+        loan_id = chosen["loan_id"]
+        loan_hash = hashlib.sha256(loan_id.encode()).hexdigest()   # = the /details/<hash> route
+        page.goto(f"https://netbank.nordea.no/loans/details/{loan_hash}/pay-plans")
+        page.wait_for_timeout(2500)                  # fires detail + pay-plans (intercepted)
 
         browser.close()
 

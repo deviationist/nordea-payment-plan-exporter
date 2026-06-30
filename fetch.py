@@ -21,7 +21,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 # a realistic UA helps avoid trivial headless fingerprinting
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -100,11 +100,19 @@ def main():
         page.get_by_role("textbox", name="Fødselsnummer").fill(ssn)   # .env SSN
         page.keyboard.press("Enter")
         page.get_by_role("button", name="Bekreft innlogging").click(timeout=60000)
+        # BankID may show a password page, or (device remembered) go straight to an
+        # app push. Fill the password if the field shows up; otherwise skip to the push.
         frame = page.frame_locator('iframe[title="BankID"]')
-        frame.get_by_role("textbox", name="Ditt BankID-passord").fill(pwd, timeout=60000)
-        frame.get_by_role("button", name="Neste").click()
+        pwd_field = frame.get_by_role("textbox", name="Ditt BankID-passord")
+        try:
+            pwd_field.wait_for(timeout=20000)
+            pwd_field.fill(pwd)
+            frame.get_by_role("button", name="Neste").click()
+            print(">>> Password submitted.", flush=True)
+        except PlaywrightTimeoutError:
+            print(">>> No password step — app-only confirmation.", flush=True)
 
-        print(">>> Confirm on your phone / enter the OTP in the browser window …",
+        print(">>> Approve the BankID request on your phone (or enter the OTP) …",
               flush=True)
         page.wait_for_url("**/overview/**", timeout=240000)   # waits for you
         print(">>> Logged in. Capturing loan data …", flush=True)
@@ -119,20 +127,24 @@ def main():
 
         with_plan = [l for l in captured.get("list", {}).get("loans", [])
                      if l.get("has_repayment_plan")]
-        want = env.get("LOAN_ID")
+        want = env.get("LOAN_ACCOUNT") or env.get("LOAN_ID")   # account no., e.g. 1234.56.78901
         if want:                                     # explicit choice (disambiguates >1 loan)
-            chosen = next((l for l in with_plan if l.get("loan_id") == want), None)
+            wn = re.sub(r"\D", "", want)             # digits only — accepts the dotted account no.
+            chosen = next((l for l in with_plan
+                           if re.sub(r"\D", "", l.get("loan_formatted_id", "")) == wn
+                           or re.sub(r"\D", "", l.get("loan_id", "")) == wn), None)
             if not chosen:
-                sys.exit(f"LOAN_ID {want} not found among loans with a repayment plan")
+                sys.exit(f"Loan {want} not found among loans with a repayment plan")
         else:                                        # else the single mortgage with a plan
             pool = [l for l in with_plan if l.get("group") == "mortgage"] or with_plan
             if len(pool) != 1:
-                found = ", ".join(f'{l.get("loan_id")} ({l.get("group")})' for l in pool) or "none"
-                sys.exit(f"Could not pick a single loan — set LOAN_ID in .env. Candidates: {found}")
+                found = ", ".join(f'{l.get("loan_formatted_id")} ({l.get("group")})'
+                                  for l in pool) or "none"
+                sys.exit(f"Could not pick a single loan — set LOAN_ACCOUNT in .env. Candidates: {found}")
             chosen = pool[0]
 
         loan_id = chosen["loan_id"]
-        loan_hash = hashlib.sha256(loan_id.encode()).hexdigest()   # = the /details/<hash> route
+        loan_hash = hashlib.sha256(loan_id.encode()).hexdigest()   # route = sha256(loan_id)
         page.goto(f"https://netbank.nordea.no/loans/details/{loan_hash}/pay-plans")
         page.wait_for_timeout(2500)                  # fires detail + pay-plans (intercepted)
 

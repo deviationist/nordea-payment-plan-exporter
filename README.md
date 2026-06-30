@@ -42,7 +42,7 @@ Copy `.env.example` → `.env` (gitignored) and fill in:
 | Key | Used by | Meaning |
 |---|---|---|
 | `SSN`, `BANKID_PWD` | `fetch.sh` | Nordea login (OTP/phone stays manual) |
-| `LOAN_ID` | `fetch.sh` | optional — only to disambiguate >1 loan with a repayment plan |
+| `LOAN_ACCOUNT` | `fetch.sh` | optional — account number, only to disambiguate >1 loan with a repayment plan |
 | `DOWNPAYMENT` | `build.sh`, `compare.sh` | temporary downpayment in kr (e.g. `500000`; empty/0 = initial plan only) |
 | `DOWN_DATE` | `build.sh`, `compare.sh` | when it's paid, `YYYY-MM-DD` (default: first term) |
 | `UP_DATE` | `build.sh`, `compare.sh` | uploan repayment date, `YYYY-MM-DD` (e.g. `2030-01-01`) |
@@ -198,8 +198,9 @@ captures them.
 
 **Loan selection is dynamic, no DOM clicking.** From the intercepted
 `/loans-v1/loans` list it picks the single loan with a repayment plan (preferring
-`group == "mortgage"`); set `LOAN_ID` in `.env` to disambiguate if you have more
-than one. The `/loans/details/<hash>` route is just **`sha256(loan_id)`**, so the
+`group == "mortgage"`); set `LOAN_ACCOUNT` (the account number) in `.env` to
+disambiguate if you have more than one. It matches by digits, so `1234.56.78901`
+and `1234567890` both work. The `/loans/details/<hash>` route is **`sha256(loan_id)`**, so the
 script computes that and deep-links straight to the loan's pay-plans page — which
 fires both the detail and pay-plans calls — instead of relying on a fragile button
 selector.
